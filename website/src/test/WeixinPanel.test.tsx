@@ -71,3 +71,72 @@ describe('WeixinPanel — DM policy picker', () => {
     ])
   })
 })
+
+
+describe('WeixinPanel — session folder', () => {
+  it('enabling the toggle reveals the name field WITHOUT saving', async () => {
+    // The save endpoint creates the folder, so a save on check would put a
+    // "WeChat" folder in the sidebar before the user types the name they want —
+    // and renaming afterwards leaves that first folder behind for good.
+    const save = vi.spyOn(api, 'saveWeixinConfig').mockResolvedValue({ ...CONFIG })
+    renderWithProviders(<WeixinPanel />)
+
+    const toggle = await screen.findByTestId('weixin-session-folder-toggle')
+    fireEvent.click(toggle)
+
+    expect(await screen.findByTestId('weixin-session-folder-name')).toBeTruthy()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('saves once, with the committed name, when the field blurs', async () => {
+    const save = vi.spyOn(api, 'saveWeixinConfig').mockResolvedValue({ ...CONFIG })
+    renderWithProviders(<WeixinPanel />)
+
+    fireEvent.click(await screen.findByTestId('weixin-session-folder-toggle'))
+    const input = await screen.findByTestId('weixin-session-folder-name')
+    fireEvent.change(input, { target: { value: 'Team chat' } })
+    fireEvent.blur(input)
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save).toHaveBeenCalledWith({ session_folder: 'Team chat' })
+  })
+
+  it('turning the toggle off saves the cleared value immediately', async () => {
+    // Clearing cannot create a folder, so there is nothing to defer.
+    vi.spyOn(api, 'getWeixinConfig').mockResolvedValue({
+      ...CONFIG,
+      session_folder: 'WeChat',
+    })
+    const save = vi.spyOn(api, 'saveWeixinConfig').mockResolvedValue({ ...CONFIG })
+    renderWithProviders(<WeixinPanel />)
+
+    const toggle = await screen.findByTestId('weixin-session-folder-toggle')
+    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(true))
+    fireEvent.click(toggle)
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ session_folder: '' }))
+  })
+
+  it('shows the server error when a folder name is rejected', async () => {
+    vi.spyOn(api, 'saveWeixinConfig').mockRejectedValue(
+      new Error('Folder name cannot contain / or \\'),
+    )
+    renderWithProviders(<WeixinPanel />)
+
+    fireEvent.click(await screen.findByTestId('weixin-session-folder-toggle'))
+    const input = await screen.findByTestId('weixin-session-folder-name')
+    fireEvent.change(input, { target: { value: 'a/b' } })
+    fireEvent.blur(input)
+
+    const err = await screen.findByTestId('weixin-session-folder-error')
+    expect(err.textContent).toContain('cannot contain')
+  })
+
+  it('gives the name field a visible label, not just an aria-label', async () => {
+    // The other five channel panels render a visible caption; this one carried
+    // the meaning only in a placeholder that vanishes on first keystroke.
+    renderWithProviders(<WeixinPanel />)
+    fireEvent.click(await screen.findByTestId('weixin-session-folder-toggle'))
+    expect(await screen.findByLabelText('Folder name')).toBeTruthy()
+  })
+})
